@@ -1,0 +1,261 @@
+{
+  "info": {
+    "name": "Insurance Policy & Accounting Module",
+    "description": "Full test suite for the Insurance Policy & Accounting backend.\n\nFlow:\n1. Create Customer\n2. Create Policy (GST auto-calculated)\n3. Get Policy\n4. Create Payment\n5. Get Ledger (verify double-entry)\n6. Get Summary (verify outstanding balance)\n7. Reverse Payment (insert-only correction)\n8. Edge cases: duplicate policy, overpayment, re-reversal\n\nSet the `baseUrl` variable to http://localhost:3000 for local dev.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",   "value": "http://localhost:3000", "type": "string" },
+    { "key": "customerId","value": "1",                     "type": "string" },
+    { "key": "policyId",  "value": "1",                     "type": "string" },
+    { "key": "paymentId", "value": "1",                     "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health",
+        "description": "Verify the server is running."
+      }
+    },
+
+    {
+      "name": "── CUSTOMERS ──",
+      "item": [
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/customers",
+            "description": "Creates a new customer. Returns id to use as customerId in policy creation.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"name\": \"Rahul Sharma\",\n  \"email\": \"rahul.sharma@example.com\",\n  \"phone\": \"9876543210\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Customer – Missing Name (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/customers",
+            "description": "Edge case: missing name field → expect 400.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"email\": \"noemail@example.com\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "── POLICIES ──",
+      "item": [
+        {
+          "name": "Create Policy",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/policies",
+            "description": "Creates a policy. GST (18% default) and total premium are auto-calculated.\nAlso inserts a policy_transaction (CREATED) and three ledger entries:\n  Dr Customer Receivable 11,800\n  Cr Premium Income      10,000\n  Cr GST Payable          1,800",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyNumber\": \"POL-1001\",\n  \"customerId\": {{customerId}},\n  \"premiumAmount\": 10000\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Policy – Custom GST Rate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/policies",
+            "description": "Creates a policy with a non-default GST rate (5%).",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyNumber\": \"POL-1002\",\n  \"customerId\": {{customerId}},\n  \"premiumAmount\": 20000,\n  \"gstRate\": 5\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Policy – Duplicate Number (409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/policies",
+            "description": "Edge case: re-use an existing policy number → expect 409 Conflict.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyNumber\": \"POL-1001\",\n  \"customerId\": {{customerId}},\n  \"premiumAmount\": 5000\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Policy – Invalid Customer (404)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/policies",
+            "description": "Edge case: non-existent customerId → expect 404.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyNumber\": \"POL-9999\",\n  \"customerId\": 99999,\n  \"premiumAmount\": 5000\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Policy – Zero Amount (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/policies",
+            "description": "Edge case: premiumAmount = 0 → expect 400.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyNumber\": \"POL-ZERO\",\n  \"customerId\": {{customerId}},\n  \"premiumAmount\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Policy",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/{{policyId}}",
+            "description": "Returns policy details joined with customer name and email."
+          }
+        },
+        {
+          "name": "Get Policy – Not Found (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/99999",
+            "description": "Edge case: non-existent policy id → expect 404."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "── PAYMENTS ──",
+      "item": [
+        {
+          "name": "Create Payment (Partial)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments",
+            "description": "Records a partial payment of ₹5,000 against the ₹11,800 policy.\nInserts a payment row and two ledger entries:\n  Dr Bank/Cash              5,000\n  Cr Customer Receivable    5,000\nOutstanding after = ₹6,800.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyId\": {{policyId}},\n  \"amount\": 5000\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Payment (Full remaining)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments",
+            "description": "Pays the remaining ₹6,800. After this, outstanding = 0.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyId\": {{policyId}},\n  \"amount\": 6800\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Payment – Overpayment (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments",
+            "description": "Edge case: payment exceeds outstanding balance → expect 400.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyId\": {{policyId}},\n  \"amount\": 999999\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Payment – Zero Amount (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments",
+            "description": "Edge case: amount = 0 → expect 400.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"policyId\": {{policyId}},\n  \"amount\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "Reverse Payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments/{{paymentId}}/reverse",
+            "description": "Insert-only correction: inserts a REVERSAL payment row referencing the original.\nMirror ledger entries:\n  Dr Customer Receivable    (amount)\n  Cr Bank/Cash              (amount)\nOriginal payment row is NEVER modified.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"remarks\": \"Wrong amount entered, reversing\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reverse Payment – Already Reversed (409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments/{{paymentId}}/reverse",
+            "description": "Edge case: reversing the same payment twice → expect 409 Conflict.",
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"remarks\": \"Attempting duplicate reversal\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "── REPORTING ──",
+      "item": [
+        {
+          "name": "Get Policy Ledger",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/{{policyId}}/ledger",
+            "description": "Returns all ledger_entries for the policy joined with account names,\nordered chronologically. Shows the full double-entry story:\npolicy creation → payments → reversals."
+          }
+        },
+        {
+          "name": "Get Policy Summary",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/{{policyId}}/summary",
+            "description": "Returns account-wise totals (SUM debit / SUM credit / net_balance)\ncomputed via SQL aggregation — no stored running total.\nAlso returns totalPaid and outstanding derived from payments table."
+          }
+        }
+      ]
+    }
+  ]
+}
